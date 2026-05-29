@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Football Team Selection</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root{
   --green:#1b7f3b; --green-dark:#14622d; --red:#c0392b;
@@ -52,12 +51,6 @@ input[type=text],input[type=number],select{
 .team-card h3{margin:0 0 6px;font-size:1rem}
 .team-card .rating{color:var(--muted);font-size:.85rem}
 .vs{text-align:center;font-weight:700;color:var(--muted)}
-
-/* Stats table */
-table{width:100%;border-collapse:collapse;font-size:.9rem}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
-th{color:var(--muted);font-weight:600}
-.win-pct{font-weight:700}
 
 /* Modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;padding:16px;overflow:auto}
@@ -117,22 +110,6 @@ th{color:var(--muted);font-weight:600}
     <div id="results"><p style="color:var(--muted)">No teams created yet.</p></div>
   </section>
 
-  <!-- STATS -->
-  <section>
-    <h2>Player Stats</h2>
-    <div id="playerStats"></div>
-    <div class="btn-row" style="margin-top:12px">
-      <button class="btn-red btn" id="resetStatsBtn">Reset Win/Loss Stats</button>
-      <button class="btn-outline btn" id="restoreBtn">Restore Default Players</button>
-    </div>
-  </section>
-
-  <!-- CHART -->
-  <section>
-    <h2>Player Performance</h2>
-    <div style="position:relative;height:320px"><canvas id="playerChart"></canvas></div>
-  </section>
-
   <!-- RATING CALCULATOR -->
   <section>
     <h2>Calculate Team Ratings</h2>
@@ -140,6 +117,12 @@ th{color:var(--muted);font-weight:600}
     <div class="field"><input type="text" id="team2Input" placeholder="Team 2 players, comma separated"></div>
     <button class="btn" id="calcBtn">Calculate Ratings</button>
     <div id="teamRatings" style="margin-top:12px"></div>
+  </section>
+
+  <!-- MANAGE PLAYERS -->
+  <section>
+    <h2>Manage Players</h2>
+    <button class="btn-outline btn" id="restoreBtn">Restore Default Players</button>
   </section>
 </main>
 
@@ -200,13 +183,11 @@ const defaultPlayers = {
   "Rob":{Goalkeeper:2,Defender:4,Midfielder:3,Forward:1,Running:5}
 };
 
-/* Normalise: ensure TOTAL, Wins, Losses */
+/* Normalise: ensure TOTAL is computed */
 function normalise(obj){
   Object.keys(obj).forEach(n=>{
     const p=obj[n];
     p.TOTAL=p.Goalkeeper+p.Defender+p.Midfielder+p.Forward+p.Running;
-    if(p.Wins===undefined)p.Wins=0;
-    if(p.Losses===undefined)p.Losses=0;
   });
   return obj;
 }
@@ -217,7 +198,7 @@ function load(){
 function save(){localStorage.setItem("players",JSON.stringify(players));}
 
 let players = load();
-let lastTeam1=null,lastTeam2=null,resultRecorded=false;
+let lastTeam1=null,lastTeam2=null;
 
 /* ---------- HELPERS ---------- */
 const $=id=>document.getElementById(id);
@@ -260,33 +241,12 @@ function createTeams(){
 
 /* ---------- DISPLAY TEAMS ---------- */
 function displayTeams(t1,t2){
-  lastTeam1=t1;lastTeam2=t2;resultRecorded=false;
+  lastTeam1=t1;lastTeam2=t2;
   $("results").innerHTML=`
     <div class="team-block">
       <div class="team-card"><h3>Team 1</h3><div>${t1.join(", ")}</div><div class="rating">Rating: ${teamTotal(t1)}</div></div>
       <div class="team-card"><h3>Team 2</h3><div>${t2.join(", ")}</div><div class="rating">Rating: ${teamTotal(t2)}</div></div>
-    </div>
-    <div class="btn-row">
-      <button class="btn" id="win1">Team 1 Won</button>
-      <button class="btn" id="win2">Team 2 Won</button>
-    </div>
-    <p id="resultMsg" style="margin:10px 0 0;font-weight:700;color:var(--green-dark)"></p>`;
-  $("win1").onclick=()=>recordResult(1);
-  $("win2").onclick=()=>recordResult(2);
-}
-
-/* ---------- RECORD RESULT (guarded against double-click) ---------- */
-function recordResult(winner){
-  if(!lastTeam1||!lastTeam2){alert("No teams created.");return;}
-  if(resultRecorded){return;}
-  resultRecorded=true;
-  const wTeam=winner===1?lastTeam1:lastTeam2, lTeam=winner===1?lastTeam2:lastTeam1;
-  wTeam.forEach(p=>{ if(players[p])players[p].Wins++; });
-  lTeam.forEach(p=>{ if(players[p])players[p].Losses++; });
-  save();
-  $("win1").disabled=$("win2").disabled=true;
-  $("resultMsg").textContent=`Recorded: Team ${winner} won. (Players not in the roster are ignored.)`;
-  renderPlayerStats();renderChart();
+    </div>`;
 }
 
 /* ---------- RATING CALCULATOR ---------- */
@@ -315,11 +275,11 @@ function saveAttributes(){
   p.Goalkeeper=clamp($("goalkeeper").value);p.Defender=clamp($("defender").value);
   p.Midfielder=clamp($("midfielder").value);p.Forward=clamp($("forward").value);p.Running=clamp($("running").value);
   p.TOTAL=p.Goalkeeper+p.Defender+p.Midfielder+p.Forward+p.Running;
-  save();closeModal("playerModal");renderAll();
+  save();closeModal("playerModal");renderPlayers();
 }
 function removePlayer(){
   if(!confirm("Remove "+editingName+"?"))return;
-  delete players[editingName];save();closeModal("playerModal");renderAll();
+  delete players[editingName];save();closeModal("playerModal");renderPlayers();
 }
 const clamp=v=>Math.max(0,Math.min(5,Number(v)||0));
 
@@ -330,8 +290,8 @@ function addPlayer(){
   if(players[name]){alert("A player with that name already exists.");return;}
   const g=clamp($("newGoalkeeper").value),d=clamp($("newDefender").value),m=clamp($("newMidfielder").value),
         f=clamp($("newForward").value),r=clamp($("newRunning").value);
-  players[name]={Goalkeeper:g,Defender:d,Midfielder:m,Forward:f,Running:r,TOTAL:g+d+m+f+r,Wins:0,Losses:0};
-  save();closeModal("addPlayerModal");$("newPlayerName").value="";renderAll();
+  players[name]={Goalkeeper:g,Defender:d,Midfielder:m,Forward:f,Running:r,TOTAL:g+d+m+f+r};
+  save();closeModal("addPlayerModal");$("newPlayerName").value="";renderPlayers();
 }
 
 /* ---------- RENDER PLAYERS ---------- */
@@ -360,44 +320,10 @@ function renderPlayers(){
   updateCounter();
 }
 
-/* ---------- RENDER STATS ---------- */
-function renderPlayerStats(){
-  let rows=Object.keys(players).sort().map(name=>{
-    const p=players[name],tot=p.Wins+p.Losses,pct=tot?Math.round(p.Wins/tot*100):0;
-    return `<tr><td>${name}</td><td>${p.Wins}</td><td>${p.Losses}</td><td class="win-pct">${pct}%</td></tr>`;
-  }).join("");
-  $("playerStats").innerHTML=`<table><thead><tr><th>Player</th><th>Wins</th><th>Losses</th><th>Win %</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-/* ---------- CHART ---------- */
-let playerChart=null;
-function renderChart(){
-  const played=Object.keys(players).filter(n=>players[n].Wins+players[n].Losses>0).sort();
-  const ctx=$("playerChart").getContext("2d");
-  if(playerChart)playerChart.destroy();
-  if(!played.length){
-    ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
-    return;
-  }
-  playerChart=new Chart(ctx,{
-    type:"bar",
-    data:{labels:played,datasets:[
-      {label:"Wins",data:played.map(n=>players[n].Wins),backgroundColor:"rgba(27,127,59,.8)"},
-      {label:"Losses",data:played.map(n=>players[n].Losses),backgroundColor:"rgba(192,57,43,.8)"}
-    ]},
-    options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}
-  });
-}
-
-/* ---------- RESET / RESTORE ---------- */
-function resetStats(){
-  if(!confirm("Reset all win/loss records to zero?"))return;
-  Object.keys(players).forEach(n=>{players[n].Wins=0;players[n].Losses=0;});
-  save();renderAll();
-}
+/* ---------- RESTORE ---------- */
 function restoreDefaults(){
-  if(!confirm("Restore the default player list? This replaces all current players and stats."))return;
-  players=normalise(structuredClone(defaultPlayers));save();renderAll();
+  if(!confirm("Restore the default player list? This replaces all current players."))return;
+  players=normalise(structuredClone(defaultPlayers));save();renderPlayers();
 }
 
 /* ---------- MODAL HELPERS ---------- */
@@ -412,15 +338,13 @@ $("calcBtn").onclick=calculateTeamRatings;
 $("saveAttrBtn").onclick=saveAttributes;
 $("removeBtn").onclick=removePlayer;
 $("addPlayerBtn").onclick=addPlayer;
-$("resetStatsBtn").onclick=resetStats;
 $("restoreBtn").onclick=restoreDefaults;
 $("sortCriteria").onchange=renderPlayers;
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id);}));
 
 /* ---------- INIT ---------- */
-function renderAll(){renderPlayers();renderPlayerStats();renderChart();}
-renderAll();
+renderPlayers();
 </script>
 </body>
 </html>
