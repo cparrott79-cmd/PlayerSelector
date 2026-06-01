@@ -269,10 +269,10 @@ function createTeams(){
   const byWorst=[...selected].sort((a,b)=>players[a].TOTAL-players[b].TOTAL);
   const worstA=byWorst[0], worstB=byWorst[1];
 
-  /* Exhaustive search: try every way to choose Team 1.
-     Anchor player index 0 to Team 1 so we never evaluate the
-     same split twice (teams are interchangeable). */
+  /* Exhaustive search over every possible split (player 0 anchored to Team 1
+     so we don't evaluate interchangeable splits twice). */
   let bestScore=Infinity, bestT1=null, bestT2=null;
+  let bestScoreRelaxed=Infinity, bestT1Relaxed=null, bestT2Relaxed=null; // fallback only
 
   combinations(n,k).forEach(idx=>{
     if(!idx.includes(0)) return;     // anchor: player 0 must be in Team 1
@@ -280,17 +280,38 @@ function createTeams(){
     const t1=[],t2=[];
     for(let i=0;i<n;i++){ (inT1.has(i)?t1:t2).push(selected[i]); }
 
-    /* CONSTRAINT: the two worst players must be on opposite teams. */
+    /* HARD RULE 1: the two worst players must be on opposite teams. */
     const aInT1=t1.includes(worstA);
     const bInT1=t1.includes(worstB);
-    if(aInT1===bInT1) return;        // both same team → skip this split
+    if(aInT1===bInT1) return;        // both same team → skip
 
     const score=imbalanceScore(t1,t2);
+
+    /* Track the best position-balanced split ignoring the total cap,
+       as a safety fallback in case no split satisfies the ≤2 rule. */
+    if(score<bestScoreRelaxed){ bestScoreRelaxed=score; bestT1Relaxed=t1; bestT2Relaxed=t2; }
+
+    /* HARD RULE 2: total-rating difference must be <= 2. */
+    const totalDiff=Math.abs(teamTotal(t1)-teamTotal(t2));
+    if(totalDiff>2) return;          // exceeds cap → skip
+
+    /* SOFT: among splits passing both hard rules, pick best position balance. */
     if(score<bestScore){ bestScore=score; bestT1=t1; bestT2=t2; }
   });
 
-  bestT1.sort(); bestT2.sort();
-  displayTeams(bestT1,bestT2);
+  /* Use the constrained best; if (rarely) none satisfied the <=2 cap,
+     fall back to the best position-balanced split and warn. */
+  let t1Final, t2Final, warn="";
+  if(bestT1){
+    t1Final=bestT1; t2Final=bestT2;
+  } else {
+    t1Final=bestT1Relaxed; t2Final=bestT2Relaxed;
+    warn="No split kept the total difference within 2, so the closest possible was used.";
+  }
+
+  t1Final.sort(); t2Final.sort();
+  displayTeams(t1Final,t2Final);
+  if(warn){ $("results").insertAdjacentHTML("beforeend",`<p style="color:var(--red)">${warn}</p>`); }
 }
 
 /* ---------- DISPLAY TEAMS ---------- */
