@@ -50,7 +50,10 @@ input[type=text],input[type=number],select{
 .team-card{border:1px solid var(--line);border-radius:10px;padding:12px}
 .team-card h3{margin:0 0 6px;font-size:1rem}
 .team-card .rating{color:var(--muted);font-size:.85rem}
+.team-card .breakdown{color:var(--muted);font-size:.8rem;margin-top:4px}
 .vs{text-align:center;font-weight:700;color:var(--muted)}
+.diff{font-size:.85rem;color:var(--muted);margin-top:4px}
+.copy-ok{color:var(--green-dark);font-weight:700;font-size:.85rem;margin-left:6px}
 
 /* Modal */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;padding:16px;overflow:auto}
@@ -163,24 +166,39 @@ input[type=text],input[type=number],select{
 <script>
 /* ---------- DEFAULT DATA ---------- */
 const defaultPlayers = {
-  "Alfie":{Goalkeeper:2,Defender:3,Midfielder:4,Forward:5,Running:4},
+  "Alfie":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:5,Running:4},
   "Ben":{Goalkeeper:3,Defender:5,Midfielder:4,Forward:4,Running:3},
   "Charlie":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:2,Running:2},
-  "Chris":{Goalkeeper:4,Defender:3,Midfielder:4,Forward:3,Running:4},
+  "Chris":{Goalkeeper:4,Defender:3,Midfielder:4,Forward:3,Running:3},
   "Craig":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:2,Running:3},
   "Dan":{Goalkeeper:2,Defender:2,Midfielder:4,Forward:3,Running:2},
-  "Danny":{Goalkeeper:4,Defender:2,Midfielder:3,Forward:3,Running:4},
   "Darius":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:3,Running:4},
   "Den":{Goalkeeper:3,Defender:4,Midfielder:5,Forward:3,Running:4},
   "Dunc":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:4,Running:4},
-  "James":{Goalkeeper:3,Defender:4,Midfielder:5,Forward:3,Running:5},
-  "Jason":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:4,Running:4},
+  "Harry":{Goalkeeper:2,Defender:3,Midfielder:5,Forward:4,Running:4},
+  "James":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:5},
+  "Jason":{Goalkeeper:3,Defender:2,Midfielder:3,Forward:4,Running:4},
+  "John":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:3},
   "Kirky":{Goalkeeper:5,Defender:4,Midfielder:3,Forward:2,Running:4},
   "Liam":{Goalkeeper:4,Defender:2,Midfielder:3,Forward:3,Running:3},
   "Liam F":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:3},
-  "Matt":{Goalkeeper:2,Defender:1,Midfielder:4,Forward:5,Running:4},
+  "Matt":{Goalkeeper:2,Defender:3,Midfielder:4,Forward:5,Running:4},
+  "Mike":{Goalkeeper:2,Defender:4,Midfielder:3,Forward:3,Running:4},
   "Ric":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:2,Running:3},
   "Rob":{Goalkeeper:3,Defender:5,Midfielder:3,Forward:1,Running:5}
+};
+
+/* ---------- POSITION-AWARE BALANCING CONFIG ---------- */
+/* Priority order (most → least important): Running, Goalkeeper, Forward, Defender, Midfielder.
+   Each weight dwarfs the maximum possible contribution of all lower-priority attributes
+   combined, so the optimiser balances Running first, then GK, etc., strictly. */
+const ATTRS = ["Running","Goalkeeper","Forward","Defender","Midfielder"];
+const ATTR_WEIGHTS = {
+  Running:    10000,
+  Goalkeeper:  1000,
+  Forward:      100,
+  Defender:      10,
+  Midfielder:     1
 };
 
 /* Normalise: ensure TOTAL is computed */
@@ -204,6 +222,26 @@ let lastTeam1=null,lastTeam2=null;
 const $=id=>document.getElementById(id);
 const parseList=v=>v.split(",").map(x=>x.trim()).filter(Boolean);
 const teamTotal=t=>t.reduce((s,p)=>s+(players[p]?players[p].TOTAL:0),0);
+const attrSum=(team,attr)=>team.reduce((s,p)=>s+(players[p]?players[p][attr]:0),0);
+
+/* Weighted lexicographic imbalance score (lower = better balanced) */
+function imbalanceScore(t1,t2){
+  let score=0;
+  for(const attr of ATTRS){
+    score+=ATTR_WEIGHTS[attr]*Math.abs(attrSum(t1,attr)-attrSum(t2,attr));
+  }
+  return score;
+}
+
+/* All combinations of `k` indices from 0..n-1 */
+function combinations(n,k){
+  const result=[],combo=[];
+  (function build(start){
+    if(combo.length===k){result.push(combo.slice());return;}
+    for(let i=start;i<n;i++){combo.push(i);build(i+1);combo.pop();}
+  })(0);
+  return result;
+}
 
 /* ---------- MANUAL TEAMS ---------- */
 function manualCreateTeams(){
@@ -212,7 +250,7 @@ function manualCreateTeams(){
   displayTeams(t1,t2);
 }
 
-/* ---------- AUTO BALANCED TEAMS ---------- */
+/* ---------- AUTO BALANCED TEAMS (exhaustive, position-aware) ---------- */
 function updateCounter(){
   $("message").textContent="Selected Players: "+document.querySelectorAll('input[name="player"]:checked').length;
 }
@@ -222,31 +260,92 @@ function createTeams(){
     $("message").textContent="Pick between 10 and 12 players (currently "+selected.length+").";
     return;
   }
-  selected.sort((a,b)=>players[b].TOTAL-players[a].TOTAL);
-  let t1=[],t2=[],tot1=0,tot2=0;
-  selected.forEach((p,i)=>{ if(i%2===0){t1.push(p);tot1+=players[p].TOTAL;} else {t2.push(p);tot2+=players[p].TOTAL;} });
 
-  let changed=true;
-  while(Math.abs(tot1-tot2)>2&&changed){
-    changed=false;
-    for(let i=0;i<t1.length;i++)for(let j=0;j<t2.length;j++){
-      const n1=tot1-players[t1[i]].TOTAL+players[t2[j]].TOTAL;
-      const n2=tot2-players[t2[j]].TOTAL+players[t1[i]].TOTAL;
-      if(Math.abs(n1-n2)<Math.abs(tot1-tot2)){[t1[i],t2[j]]=[t2[j],t1[i]];tot1=n1;tot2=n2;changed=true;}
-    }
-  }
-  t1.sort();t2.sort();
-  displayTeams(t1,t2);
+  const n=selected.length;
+  const k=Math.floor(n/2);          // Team 1 size (smaller half if odd)
+
+  /* Exhaustive search: try every way to choose Team 1.
+     Anchor player index 0 to Team 1 so we never evaluate the
+     same split twice (teams are interchangeable). */
+  let bestScore=Infinity, bestT1=null, bestT2=null;
+
+  combinations(n,k).forEach(idx=>{
+    if(!idx.includes(0)) return;     // anchor: player 0 must be in Team 1
+    const inT1=new Set(idx);
+    const t1=[],t2=[];
+    for(let i=0;i<n;i++){ (inT1.has(i)?t1:t2).push(selected[i]); }
+    const score=imbalanceScore(t1,t2);
+    if(score<bestScore){ bestScore=score; bestT1=t1; bestT2=t2; }
+  });
+
+  bestT1.sort(); bestT2.sort();
+  displayTeams(bestT1,bestT2);
 }
 
 /* ---------- DISPLAY TEAMS ---------- */
+function attrBreakdown(team){
+  return ATTRS.map(a=>`${a}: ${attrSum(team,a)}`).join(" · ");
+}
 function displayTeams(t1,t2){
   lastTeam1=t1;lastTeam2=t2;
+  const runDiff=Math.abs(attrSum(t1,"Running")-attrSum(t2,"Running"));
   $("results").innerHTML=`
     <div class="team-block">
-      <div class="team-card"><h3>Team 1</h3><div>${t1.join(", ")}</div><div class="rating">Rating: ${teamTotal(t1)}</div></div>
-      <div class="team-card"><h3>Team 2</h3><div>${t2.join(", ")}</div><div class="rating">Rating: ${teamTotal(t2)}</div></div>
+      <div class="team-card">
+        <h3>Team 1</h3>
+        <div>${t1.join(", ")}</div>
+        <div class="rating">Rating: ${teamTotal(t1)}</div>
+        <div class="breakdown">${attrBreakdown(t1)}</div>
+      </div>
+      <div class="team-card">
+        <h3>Team 2</h3>
+        <div>${t2.join(", ")}</div>
+        <div class="rating">Rating: ${teamTotal(t2)}</div>
+        <div class="breakdown">${attrBreakdown(t2)}</div>
+      </div>
+    </div>
+    <div class="diff">Running difference: ${runDiff} · Total difference: ${Math.abs(teamTotal(t1)-teamTotal(t2))}</div>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn" id="copyBtn">Copy Teams</button>
+      <span id="copyMsg" class="copy-ok"></span>
     </div>`;
+  $("copyBtn").onclick=copyTeams;
+}
+
+/* ---------- COPY TEAMS ---------- */
+function copyTeams(){
+  if(!lastTeam1||!lastTeam2){return;}
+  /* Randomly assign a colour to team 1; team 2 gets the opposite. */
+  const team1IsRed = Math.random()<0.5;
+  const colour1 = team1IsRed ? "Red Team"   : "White Team";
+  const colour2 = team1IsRed ? "White Team" : "Red Team";
+
+  const text =
+    `${colour1}\n` +
+    `${lastTeam1.join(", ")}\n` +
+    `vs\n` +
+    `${colour2}\n` +
+    `${lastTeam2.join(", ")}`;
+
+  const done = ()=>{ const m=$("copyMsg"); if(m){ m.textContent="✓ Copied!"; setTimeout(()=>m.textContent="",2000); } };
+  const fail = ()=>{ alert("Couldn't copy automatically. Here are the teams:\n\n"+text); };
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done,fail));
+  } else {
+    fallbackCopy(text,done,fail);
+  }
+}
+/* Fallback for older browsers / non-secure contexts */
+function fallbackCopy(text,done,fail){
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok=document.execCommand("copy");
+    document.body.removeChild(ta);
+    ok?done():fail();
+  }catch(e){ fail(); }
 }
 
 /* ---------- RATING CALCULATOR ---------- */
@@ -255,8 +354,8 @@ function calculateTeamRatings(){
   const unknown=[...t1,...t2].filter(p=>!players[p]);
   $("teamRatings").innerHTML=`
     <div class="team-block">
-      <div class="team-card"><h3>Team 1</h3><div class="rating">Rating: ${teamTotal(t1)}</div></div>
-      <div class="team-card"><h3>Team 2</h3><div class="rating">Rating: ${teamTotal(t2)}</div></div>
+      <div class="team-card"><h3>Team 1</h3><div class="rating">Rating: ${teamTotal(t1)}</div><div class="breakdown">${attrBreakdown(t1)}</div></div>
+      <div class="team-card"><h3>Team 2</h3><div class="rating">Rating: ${teamTotal(t2)}</div><div class="breakdown">${attrBreakdown(t2)}</div></div>
     </div>
     ${unknown.length?`<p style="color:var(--red)">Unknown players ignored: ${unknown.join(", ")}</p>`:""}`;
 }
