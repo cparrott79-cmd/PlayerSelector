@@ -264,6 +264,11 @@ function createTeams(){
   const n=selected.length;
   const k=Math.floor(n/2);          // Team 1 size (smaller half if odd)
 
+  /* Identify the two WORST players (lowest TOTAL) among the selected group.
+     These two must never end up on the same team. */
+  const byWorst=[...selected].sort((a,b)=>players[a].TOTAL-players[b].TOTAL);
+  const worstA=byWorst[0], worstB=byWorst[1];
+
   /* Exhaustive search: try every way to choose Team 1.
      Anchor player index 0 to Team 1 so we never evaluate the
      same split twice (teams are interchangeable). */
@@ -274,6 +279,12 @@ function createTeams(){
     const inT1=new Set(idx);
     const t1=[],t2=[];
     for(let i=0;i<n;i++){ (inT1.has(i)?t1:t2).push(selected[i]); }
+
+    /* CONSTRAINT: the two worst players must be on opposite teams. */
+    const aInT1=t1.includes(worstA);
+    const bInT1=t1.includes(worstB);
+    if(aInT1===bInT1) return;        // both same team → skip this split
+
     const score=imbalanceScore(t1,t2);
     if(score<bestScore){ bestScore=score; bestT1=t1; bestT2=t2; }
   });
