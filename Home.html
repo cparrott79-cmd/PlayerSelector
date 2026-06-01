@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Football Team Selection</title>
+<title>Football Team Selection V1.1</title>
 <style>
 :root{
   --green:#1b7f3b; --green-dark:#14622d; --red:#c0392b;
@@ -122,12 +122,15 @@ input[type=text],input[type=number],select{
     <div id="teamRatings" style="margin-top:12px"></div>
   </section>
 
-  <!-- MANAGE PLAYERS -->
+<!-- MANAGE PLAYERS -->
   <section>
     <h2>Manage Players</h2>
-    <button class="btn-outline btn" id="restoreBtn">Restore Default Players</button>
+    <div class="btn-row">
+      <button class="btn-outline btn" id="restoreBtn">Restore Default Players</button>
+      <button class="btn-outline btn" id="exportBtn">Export Player Ratings</button>
+    </div>
+    <span id="exportMsg" class="copy-ok"></span>
   </section>
-</main>
 
 <!-- EDIT MODAL -->
 <div class="modal" id="playerModal">
@@ -166,9 +169,9 @@ input[type=text],input[type=number],select{
 <script>
 /* ---------- DEFAULT DATA ---------- */
 const defaultPlayers = {
-  "Alfie":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:5,Running:4},
+  "Alfie":{Goalkeeper:2,Defender:3,Midfielder:4,Forward:5,Running:4},
   "Ben":{Goalkeeper:3,Defender:5,Midfielder:4,Forward:4,Running:3},
-  "Charlie":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:2,Running:2},
+  "Charlie":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:2},
   "Chris":{Goalkeeper:4,Defender:3,Midfielder:4,Forward:3,Running:3},
   "Craig":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:2,Running:3},
   "Dan":{Goalkeeper:2,Defender:2,Midfielder:4,Forward:3,Running:2},
@@ -176,7 +179,7 @@ const defaultPlayers = {
   "Den":{Goalkeeper:3,Defender:4,Midfielder:5,Forward:3,Running:4},
   "Dunc":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:4,Running:4},
   "Harry":{Goalkeeper:2,Defender:3,Midfielder:5,Forward:4,Running:4},
-  "James":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:5},
+  "James":{Goalkeeper:3,Defender:2,Midfielder:4,Forward:3,Running:5},
   "Jason":{Goalkeeper:3,Defender:2,Midfielder:3,Forward:4,Running:4},
   "John":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:3},
   "Kirky":{Goalkeeper:5,Defender:4,Midfielder:3,Forward:2,Running:4},
@@ -457,6 +460,27 @@ function restoreDefaults(){
   players=normalise(structuredClone(defaultPlayers));save();renderPlayers();
 }
 
+/* ---------- EXPORT PLAYER RATINGS ---------- */
+function exportPlayerRatings(){
+  const names=Object.keys(players);
+  if(!names.length){ alert("No players to export."); return; }
+
+  /* Format: "Alfie 2/3/3/5/4, Chris 4/3/4/3/3, ..."  (GK/Def/Mid/Fwd/Run) */
+  const text = names.map(name=>{
+    const p=players[name];
+    return `${name} ${p.Goalkeeper}/${p.Defender}/${p.Midfielder}/${p.Forward}/${p.Running}`;
+  }).join(", ");
+
+  const done = ()=>{ const m=$("exportMsg"); if(m){ m.textContent="✓ Copied!"; setTimeout(()=>m.textContent="",2000); } };
+  const fail = ()=>{ alert("Couldn't copy automatically. Here are the ratings:\n\n"+text); };
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done,fail));
+  } else {
+    fallbackCopy(text,done,fail);
+  }
+}  
+
 /* ---------- MODAL HELPERS ---------- */
 function openModal(id){$(id).classList.add("open");}
 function closeModal(id){$(id).classList.remove("open");}
@@ -471,6 +495,7 @@ $("removeBtn").onclick=removePlayer;
 $("addPlayerBtn").onclick=addPlayer;
 $("restoreBtn").onclick=restoreDefaults;
 $("sortCriteria").onchange=renderPlayers;
+$("exportBtn").onclick=exportPlayerRatings;
 document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id);}));
 
