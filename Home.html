@@ -105,22 +105,28 @@ input[type=text],input[type=number],select{
     <div id="results"><p style="color:var(--muted)">No teams created yet.</p></div>
   </section>
 
-  <!-- MANUAL ENTRY -->
+   <!-- MANUAL ENTRY -->
   <section>
     <h2>Manual Team Entry</h2>
     <div class="field"><input type="text" id="manualTeam1" placeholder="Team 1 players, comma separated"></div>
     <div class="field"><input type="text" id="manualTeam2" placeholder="Team 2 players, comma separated"></div>
     <button class="btn" id="manualBtn">Build Teams From Manual Entry</button>
   </section>
-
+  
   <!-- RATING CALCULATOR -->
   <section>
     <h2>Calculate Team Ratings</h2>
-    ...
+    <div class="field"><input type="text" id="team1Input" placeholder="Team 1 players, comma separated"></div>
+    <div class="field"><input type="text" id="team2Input" placeholder="Team 2 players, comma separated"></div>
+    <button class="btn" id="calcBtn">Calculate Ratings</button>
+    <div id="teamRatings" style="margin-top:12px"></div>
   </section>
 
   <!-- MANAGE PLAYERS -->
-  ...
+  <section>
+    <h2>Manage Players</h2>
+    <button class="btn-outline btn" id="restoreBtn">Restore Default Players</button>
+  </section>
 </main>
 
 <!-- EDIT MODAL -->
