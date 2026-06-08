@@ -1,0 +1,339 @@
+/* ====== SUPABASE CONFIG — EDIT THESE TWO LINES ====== */
+const SUPABASE_URL = "https://YOUR-PROJECT-ref.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/* ==================================================== */
+
+/* ---------- DEFAULT DATA (used only by Restore Defaults) ---------- */
+const defaultPlayers = {
+  "Alfie":{Goalkeeper:2,Defender:3,Midfielder:4,Forward:5,Running:4},
+  "Ben":{Goalkeeper:3,Defender:5,Midfielder:4,Forward:4,Running:3},
+  "Charlie":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:2},
+  "Chris":{Goalkeeper:4,Defender:3,Midfielder:4,Forward:3,Running:3},
+  "Craig":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:2,Running:3},
+  "Dan":{Goalkeeper:2,Defender:2,Midfielder:4,Forward:3,Running:2},
+  "Darius":{Goalkeeper:2,Defender:3,Midfielder:3,Forward:3,Running:4},
+  "Den":{Goalkeeper:3,Defender:4,Midfielder:5,Forward:3,Running:4},
+  "Dunc":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:4,Running:4},
+  "Harry":{Goalkeeper:2,Defender:3,Midfielder:5,Forward:4,Running:4},
+  "James":{Goalkeeper:3,Defender:2,Midfielder:4,Forward:3,Running:5},
+  "Jason":{Goalkeeper:3,Defender:2,Midfielder:3,Forward:4,Running:4},
+  "John":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:3},
+  "Kirky":{Goalkeeper:5,Defender:4,Midfielder:3,Forward:2,Running:4},
+  "Liam":{Goalkeeper:4,Defender:2,Midfielder:3,Forward:3,Running:3},
+  "Liam F":{Goalkeeper:3,Defender:3,Midfielder:4,Forward:3,Running:3},
+  "Matt":{Goalkeeper:2,Defender:3,Midfielder:4,Forward:5,Running:4},
+  "Mike":{Goalkeeper:2,Defender:4,Midfielder:3,Forward:3,Running:4},
+  "Ric":{Goalkeeper:2,Defender:2,Midfielder:3,Forward:2,Running:3},
+  "Rob":{Goalkeeper:3,Defender:5,Midfielder:3,Forward:1,Running:5}
+};
+
+/* ---------- POSITION-AWARE BALANCING CONFIG ---------- */
+const ATTRS = ["Running","Goalkeeper","Forward","Defender","Midfielder"];
+const ATTR_WEIGHTS = {
+  Running:    10000,
+  Goalkeeper:  1000,
+  Forward:      100,
+  Defender:      10,
+  Midfielder:     1
+};
+
+/* ---------- SUPABASE STORAGE LAYER ---------- */
+function rowToPlayer(r){
+  return { Goalkeeper:r.goalkeeper, Defender:r.defender, Midfielder:r.midfielder,
+           Forward:r.forward, Running:r.running, TOTAL:r.total };
+}
+function playerToRow(name,p){
+  return { name, goalkeeper:p.Goalkeeper, defender:p.Defender,
+           midfielder:p.Midfielder, forward:p.Forward, running:p.Running };
+}
+
+let players = {};
+let lastTeam1=null, lastTeam2=null;
+
+async function load(){
+  const { data, error } = await sb.from("players").select("*");
+  console.log("Supabase load →", { data, error });   // remove once working
+  if(error){ alert("Couldn't load players: "+error.message); return; }
+  players = {};
+  data.forEach(r => { players[r.name] = rowToPlayer(r); });
+}
+
+/* ---------- HELPERS ---------- */
+const $=id=>document.getElementById(id);
+const parseList=v=>v.split(",").map(x=>x.trim()).filter(Boolean);
+const teamTotal=t=>t.reduce((s,p)=>s+(players[p]?players[p].TOTAL:0),0);
+const attrSum=(team,attr)=>team.reduce((s,p)=>s+(players[p]?players[p][attr]:0),0);
+
+function imbalanceScore(t1,t2){
+  let score=0;
+  for(const attr of ATTRS){
+    score+=ATTR_WEIGHTS[attr]*Math.abs(attrSum(t1,attr)-attrSum(t2,attr));
+  }
+  return score;
+}
+
+function combinations(n,k){
+  const result=[],combo=[];
+  (function build(start){
+    if(combo.length===k){result.push(combo.slice());return;}
+    for(let i=start;i<n;i++){combo.push(i);build(i+1);combo.pop();}
+  })(0);
+  return result;
+}
+
+/* ---------- MANUAL TEAMS ---------- */
+function manualCreateTeams(){
+  const t1=parseList($("manualTeam1").value), t2=parseList($("manualTeam2").value);
+  if(!t1.length||!t2.length){alert("Both manual teams must have players.");return;}
+  displayTeams(t1,t2);
+}
+
+/* ---------- AUTO BALANCED TEAMS ---------- */
+function updateCounter(){
+  $("message").textContent="Selected Players: "+document.querySelectorAll('input[name="player"]:checked').length;
+}
+function createTeams(){
+  const selected=[...document.querySelectorAll('input[name="player"]:checked')].map(c=>c.value);
+  if(selected.length<10||selected.length>12){
+    $("message").textContent="Pick between 10 and 12 players (currently "+selected.length+").";
+    return;
+  }
+
+  const n=selected.length;
+  const k=Math.floor(n/2);
+
+  const byWorst=[...selected].sort((a,b)=>players[a].TOTAL-players[b].TOTAL);
+  const worstA=byWorst[0], worstB=byWorst[1];
+
+  let bestScore=Infinity, bestT1=null, bestT2=null;
+  let bestScoreRelaxed=Infinity, bestT1Relaxed=null, bestT2Relaxed=null;
+
+  combinations(n,k).forEach(idx=>{
+    if(!idx.includes(0)) return;
+    const inT1=new Set(idx);
+    const t1=[],t2=[];
+    for(let i=0;i<n;i++){ (inT1.has(i)?t1:t2).push(selected[i]); }
+
+    const aInT1=t1.includes(worstA);
+    const bInT1=t1.includes(worstB);
+    if(aInT1===bInT1) return;
+
+    const score=imbalanceScore(t1,t2);
+
+    if(score<bestScoreRelaxed){ bestScoreRelaxed=score; bestT1Relaxed=t1; bestT2Relaxed=t2; }
+
+    const totalDiff=Math.abs(teamTotal(t1)-teamTotal(t2));
+    if(totalDiff>2) return;
+
+    if(score<bestScore){ bestScore=score; bestT1=t1; bestT2=t2; }
+  });
+
+  let t1Final, t2Final, warn="";
+  if(bestT1){
+    t1Final=bestT1; t2Final=bestT2;
+  } else {
+    t1Final=bestT1Relaxed; t2Final=bestT2Relaxed;
+    warn="No split kept the total difference within 2, so the closest possible was used.";
+  }
+
+  t1Final.sort(); t2Final.sort();
+  displayTeams(t1Final,t2Final);
+  if(warn){ $("results").insertAdjacentHTML("beforeend",`<p style="color:var(--red)">${warn}</p>`); }
+}
+
+/* ---------- DISPLAY TEAMS ---------- */
+function attrBreakdown(team){
+  return ATTRS.map(a=>`${a}: ${attrSum(team,a)}`).join(" · ");
+}
+function displayTeams(t1,t2){
+  lastTeam1=t1;lastTeam2=t2;
+  const runDiff=Math.abs(attrSum(t1,"Running")-attrSum(t2,"Running"));
+  $("results").innerHTML=`
+    <div class="team-block">
+      <div class="team-card">
+        <h3>Team 1</h3>
+        <div>${t1.join(", ")}</div>
+        <div class="rating">Rating: ${teamTotal(t1)}</div>
+        <div class="breakdown">${attrBreakdown(t1)}</div>
+      </div>
+      <div class="team-card">
+        <h3>Team 2</h3>
+        <div>${t2.join(", ")}</div>
+        <div class="rating">Rating: ${teamTotal(t2)}</div>
+        <div class="breakdown">${attrBreakdown(t2)}</div>
+      </div>
+    </div>
+    <div class="diff">Running difference: ${runDiff} · Total difference: ${Math.abs(teamTotal(t1)-teamTotal(t2))}</div>
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn" id="copyBtn">Copy Teams</button>
+      <span id="copyMsg" class="copy-ok"></span>
+    </div>`;
+  $("copyBtn").onclick=copyTeams;
+}
+
+/* ---------- COPY TEAMS ---------- */
+function copyTeams(){
+  if(!lastTeam1||!lastTeam2){return;}
+  const team1IsRed = Math.random()<0.5;
+  const colour1 = team1IsRed ? "Red Team"   : "White Team";
+  const colour2 = team1IsRed ? "White Team" : "Red Team";
+
+  const text =
+    `${colour1}\n` +
+    `${lastTeam1.join(", ")}\n` +
+    `vs\n` +
+    `${colour2}\n` +
+    `${lastTeam2.join(", ")}`;
+
+  const done = ()=>{ const m=$("copyMsg"); if(m){ m.textContent="✓ Copied!"; setTimeout(()=>m.textContent="",2000); } };
+  const fail = ()=>{ alert("Couldn't copy automatically. Here are the teams:\n\n"+text); };
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done,fail));
+  } else {
+    fallbackCopy(text,done,fail);
+  }
+}
+function fallbackCopy(text,done,fail){
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok=document.execCommand("copy");
+    document.body.removeChild(ta);
+    ok?done():fail();
+  }catch(e){ fail(); }
+}
+
+/* ---------- RATING CALCULATOR ---------- */
+function calculateTeamRatings(){
+  const t1=parseList($("team1Input").value), t2=parseList($("team2Input").value);
+  const unknown=[...t1,...t2].filter(p=>!players[p]);
+  $("teamRatings").innerHTML=`
+    <div class="team-block">
+      <div class="team-card"><h3>Team 1</h3><div class="rating">Rating: ${teamTotal(t1)}</div><div class="breakdown">${attrBreakdown(t1)}</div></div>
+      <div class="team-card"><h3>Team 2</h3><div class="rating">Rating: ${teamTotal(t2)}</div><div class="breakdown">${attrBreakdown(t2)}</div></div>
+    </div>
+    ${unknown.length?`<p style="color:var(--red)">Unknown players ignored: ${unknown.join(", ")}</p>`:""}`;
+}
+
+/* ---------- EDIT MODAL ---------- */
+let editingName=null;
+function showPlayerAttributes(name){
+  editingName=name;const p=players[name];
+  $("playerName").textContent=name;
+  $("goalkeeper").value=p.Goalkeeper;$("defender").value=p.Defender;$("midfielder").value=p.Midfielder;
+  $("forward").value=p.Forward;$("running").value=p.Running;
+  openModal("playerModal");
+}
+async function saveAttributes(){
+  const p=players[editingName];
+  p.Goalkeeper=clamp($("goalkeeper").value);p.Defender=clamp($("defender").value);
+  p.Midfielder=clamp($("midfielder").value);p.Forward=clamp($("forward").value);p.Running=clamp($("running").value);
+  const { error } = await sb.from("players").update(playerToRow(editingName,p)).eq("name", editingName);
+  if(error){ alert(error.message); return; }
+  closeModal("playerModal"); await load(); renderPlayers();
+}
+async function removePlayer(){
+  if(!confirm("Remove "+editingName+"?"))return;
+  const { error } = await sb.from("players").delete().eq("name", editingName);
+  if(error){ alert(error.message); return; }
+  closeModal("playerModal"); await load(); renderPlayers();
+}
+const clamp=v=>Math.max(0,Math.min(5,Number(v)||0));
+
+/* ---------- ADD PLAYER ---------- */
+async function addPlayer(){
+  const name=$("newPlayerName").value.trim();
+  if(!name){alert("Please enter a name.");return;}
+  const row = {
+    name,
+    goalkeeper:clamp($("newGoalkeeper").value), defender:clamp($("newDefender").value),
+    midfielder:clamp($("newMidfielder").value), forward:clamp($("newForward").value),
+    running:clamp($("newRunning").value)
+  };
+  const { error } = await sb.from("players").insert(row);
+  if(error){ alert(error.code==="23505" ? "A player with that name already exists." : error.message); return; }
+  closeModal("addPlayerModal"); $("newPlayerName").value="";
+  await load(); renderPlayers();
+}
+
+/* ---------- RENDER PLAYERS ---------- */
+function renderPlayers(){
+  const list=$("playerList");list.innerHTML="";
+  const sort=$("sortCriteria").value;
+  const sorted=Object.keys(players).sort((a,b)=>{
+    switch(sort){
+      case"nameAsc":return a.localeCompare(b);
+      case"nameDesc":return b.localeCompare(a);
+      case"ratingAsc":return players[a].TOTAL-players[b].TOTAL;
+      case"ratingDesc":return players[b].TOTAL-players[a].TOTAL;
+    }
+  });
+  sorted.forEach(name=>{
+    const row=document.createElement("div");row.className="player";
+    row.innerHTML=`
+      <input type="checkbox" name="player" value="${name}" id="cb_${name}">
+      <label class="name" for="cb_${name}">${name}</label>
+      <span class="badge">${players[name].TOTAL}</span>
+      <button class="icon-btn" title="Edit" data-edit="${name}">✏️</button>`;
+    row.querySelector("input").addEventListener("change",updateCounter);
+    row.querySelector("[data-edit]").addEventListener("click",()=>showPlayerAttributes(name));
+    list.appendChild(row);
+  });
+  updateCounter();
+}
+
+/* ---------- RESTORE ---------- */
+async function restoreDefaults(){
+  if(!confirm("Restore the default player list? This replaces all current players."))return;
+  await sb.from("players").delete().neq("name", "");
+  const rows = Object.entries(structuredClone(defaultPlayers)).map(([name,p]) => playerToRow(name,p));
+  const { error } = await sb.from("players").insert(rows);
+  if(error){ alert(error.message); return; }
+  await load(); renderPlayers();
+}
+
+/* ---------- EXPORT PLAYER RATINGS ---------- */
+function exportPlayerRatings(){
+  const names=Object.keys(players);
+  if(!names.length){ alert("No players to export."); return; }
+  const text = names.map(name=>{
+    const p=players[name];
+    return `${name} ${p.Goalkeeper}/${p.Defender}/${p.Midfielder}/${p.Forward}/${p.Running}`;
+  }).join(", ");
+
+  const done = ()=>{ const m=$("exportMsg"); if(m){ m.textContent="✓ Copied!"; setTimeout(()=>m.textContent="",2000); } };
+  const fail = ()=>{ alert("Couldn't copy automatically. Here are the ratings:\n\n"+text); };
+
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done,fail));
+  } else {
+    fallbackCopy(text,done,fail);
+  }
+}
+
+/* ---------- MODAL HELPERS ---------- */
+function openModal(id){$(id).classList.add("open");}
+function closeModal(id){$(id).classList.remove("open");}
+
+/* ---------- WIRE UP EVENTS ---------- */
+$("manualBtn").onclick=manualCreateTeams;
+$("createBtn").onclick=createTeams;
+$("addBtn").onclick=()=>openModal("addPlayerModal");
+$("calcBtn").onclick=calculateTeamRatings;
+$("saveAttrBtn").onclick=saveAttributes;
+$("removeBtn").onclick=removePlayer;
+$("addPlayerBtn").onclick=addPlayer;
+$("restoreBtn").onclick=restoreDefaults;
+$("sortCriteria").onchange=renderPlayers;
+$("exportBtn").onclick=exportPlayerRatings;
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModal(m.id);}));
+
+/* ---------- INIT ---------- */
+(async () => {
+  await load();
+  renderPlayers();
+})();
